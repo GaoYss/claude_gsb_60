@@ -32,6 +32,12 @@ const routes = [
         meta: { title: '维修记录录入', icon: 'Tools' },
       },
       {
+        path: 'legacy/import',
+        name: 'legacy-import',
+        component: () => import('@/views/legacy/LegacyImportView.vue'),
+        meta: { title: '历史台账导入', icon: 'Files' },
+      },
+      {
         path: 'status',
         name: 'status',
         component: () => import('@/views/status/StatusLampView.vue'),

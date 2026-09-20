@@ -62,10 +62,11 @@ func (r *Repository) CountReportedBetween(ctx context.Context, from, to time.Tim
 }
 
 // CountPendingBefore 统计 before 之前登记且仍未开工的故障数量, 用于超期预警。
+// 旧系统导入的历史故障(is_legacy)只计入统计基数, 不参与逾期判定。
 func (r *Repository) CountPendingBefore(ctx context.Context, before time.Time) (int64, error) {
 	var total int64
 	err := r.session(ctx).Model(&Fault{}).
-		Where("status = ? AND reported_at < ?", StatusPending, before).
+		Where("status = ? AND reported_at < ? AND is_legacy = ?", StatusPending, before, false).
 		Count(&total).Error
 	if err != nil {
 		return 0, fmt.Errorf("统计超期未处理故障失败: %w", err)
@@ -73,14 +74,14 @@ func (r *Repository) CountPendingBefore(ctx context.Context, before time.Time) (
 	return total, nil
 }
 
-// ListPendingBefore 查询 before 之前登记且仍未开工的故障。
+// ListPendingBefore 查询 before 之前登记且仍未开工的故障, 排除旧系统历史导入记录。
 func (r *Repository) ListPendingBefore(ctx context.Context, before time.Time, limit int) ([]Fault, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	entities := make([]Fault, 0)
 	err := r.session(ctx).Model(&Fault{}).
-		Where("status = ? AND reported_at < ?", StatusPending, before).
+		Where("status = ? AND reported_at < ? AND is_legacy = ?", StatusPending, before, false).
 		Order("reported_at ASC, id ASC").
 		Limit(limit).
 		Find(&entities).Error

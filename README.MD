@@ -18,8 +18,9 @@
 | 故障登记 | 故障工单登记与流转 | 自动生成故障单号, 紧急程度分级, 状态机流转, 闭环关闭 |
 | 维修记录录入 | 针对故障单登记维修过程 | 自动生成维修单号, 开工/完工时间, 耗材与费用, 四种维修结果 |
 | 维修状态查询 | 只读的综合看板与追踪视图 | 全局概览, 路灯级维修状态列表, 按故障单号/路灯编号的全链路时间线 |
+| 历史台账导入 | 旧系统故障/维修台账一次性迁入 | Excel 模板批量导入, 逐行校验, 整批事务, 重复文件跳过, 条数与金额核对 |
 
-四个模块在后端是四个平级的独立包 (`internal/modules/{lamp,fault,repair,status}`), 在前端是四组独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
+各业务在后端是平级的独立包 (`internal/modules/{lamp,fault,repair,legacyimport,status}`), 在前端也是各自独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
 
 ---
 
@@ -45,6 +46,7 @@
 │   │   │   ├── lamp/                     #   路灯台账
 │   │   │   ├── fault/                    #   故障登记
 │   │   │   ├── repair/                   #   维修记录录入
+│   │   │   ├── legacyimport/             #   历史台账 Excel 批量导入
 │   │   │   └── status/                   #   维修状态查询(只读, 不建表)
 │   │   ├── response/                     # 统一响应信封 Envelope / PageData / OK / Fail
 │   ├── pkg/pagination/                   # 分页与排序参数(排序字段白名单)
@@ -68,6 +70,7 @@
 │   │       ├── lamp/LampListView.vue + components/LampFormDialog.vue
 │   │       ├── fault/FaultListView.vue + components/{FaultFormDialog,FaultDetailDrawer}.vue
 │   │       ├── repair/RepairListView.vue + components/{RepairFormDialog,FinishRepairDialog}.vue
+│   │       ├── legacy/LegacyImportView.vue + components/ImportBatchTable.vue
 │   │       └── status/{StatusLampView,StatusTrackView}.vue
 │   ├── nginx.conf                        # 生产: SPA 回退 + /api 反向代理
 │   ├── Dockerfile
@@ -106,6 +109,7 @@ lamp.New(db)                                   -> 路灯台账(无依赖)
 fault.New(db, lampService)                     -> 故障登记(读取路灯校验)
 repair.New(db, faultService)                   -> 维修记录(驱动故障状态流转)
 status.New(db, lampRepo, faultRepo, repairRepo)-> 维修状态查询(只读聚合)
+legacyimport.New(db, lampRepo, faultRepo)      -> 历史台账导入(读台账校验, 整批写故障/维修)
 ```
 
 路灯运行状态需要根据故障反向回填, 但 `lamp` 不能依赖 `fault`, 因此用 `lampService.SetOpenFaultCounter(faultModule.Repository())` 注入一个统计端口, 避免构造函数循环依赖。
@@ -292,6 +296,16 @@ go test ./...
 | GET | `/status/lamps` | 路灯级维修状态列表(可只看未闭环) |
 | GET | `/status/track` | 全链路追踪, 参数 `fault_no` 或 `lamp_code` |
 
+### 历史台账导入
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/legacy/template` | 下载 Excel 导入模板(含填写说明、枚举下拉与示例行) |
+| POST | `/legacy/imports/preview` | 上传文件逐行校验, 只返回问题行与条数/金额合计, 不写库 |
+| POST | `/legacy/imports` | 确认导入: 整批事务写入; 重复文件自动识别并跳过 |
+| GET | `/legacy/imports` | 导入批次分页查询(批次号/文件名/条数/金额合计) |
+| GET | `/legacy/imports/:id` | 单个批次的核对结果 |
+
 ---
 
 ## 八、业务规则
@@ -304,6 +318,13 @@ go test ./...
 - **删除维修记录** 会重算故障的 `repair_count` / `latest_repair_id`, 次数归零时把故障从 `维修中` 回退到 `待处理`。
 - **删除路灯** 会被未闭环故障拦截; **删除故障** 要求已关闭且没有维修记录。
 - **逾期判定**: 上报超过 24 小时仍未闭环的故障计入概览的逾期清单。
+- **历史台账导入**:
+  - 模板一行 = 一条故障 + 其闭环维修信息; 必填路灯编号、故障类型、故障描述、上报时间、闭环状态, 枚举列带下拉(中英文取值均兼容)。
+  - 预检逐行校验: 路灯编号必须已建档、点位(道路)必须与编号一致; 闭环时间不得早于上报时间、开工/完工时间顺序合理、已修复必须有「已修复」结果的维修记录; 同一路灯在文件内及台账中都不允许存在多条未闭环故障。问题行返回 Excel 行号与可读原因, 改完直接重传整份文件。
+  - **整批事务**: 批次、故障、维修记录在同一事务内写入, 写入后按 `batch_id` 回查故障条数、维修条数与费用合计, 任一不符整体回滚, 不会只导入一半。
+  - **重复识别**: 以规范化逐行内容的 SHA256 为内容指纹(改文件名、改空白行不影响), 同一份文件再次上传直接跳过; 文件字节 SHA256 一并留档。
+  - **统计口径**: 导入记录标记 `is_legacy=true`, 正常进入故障/维修/费用与路灯运行状态统计(计入亮灯率基数), 但**不参与逾期计算**; 故障与维修列表对历史记录显示「历史」标签。
+  - 单次导入上限 5000 行 / 20MB。
 
 ---
 

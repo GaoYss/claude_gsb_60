@@ -101,8 +101,13 @@ type Fault struct {
 	LatestRepairID *uint      `json:"latest_repair_id"`
 	ClosedAt       *time.Time `json:"closed_at"`
 	CloseRemark    string     `gorm:"size:255" json:"close_remark"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+
+	// IsLegacy 标记旧系统历史台账导入的记录: 计入各类统计基数, 但不参与逾期计算。
+	IsLegacy bool  `gorm:"not null;default:0;index" json:"is_legacy"`
+	BatchID  *uint `gorm:"index" json:"batch_id,omitempty"`
+
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // TableName 指定表名。

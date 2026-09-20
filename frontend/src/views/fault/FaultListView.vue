@@ -34,7 +34,12 @@
 
     <el-card shadow="never">
       <el-table v-loading="loading" :data="rows" stripe>
-        <el-table-column prop="fault_no" label="故障单号" width="140" fixed="left" />
+        <el-table-column label="故障单号" width="150" fixed="left">
+          <template #default="{ row }">
+            <span>{{ row.fault_no }}</span>
+            <el-tag v-if="row.is_legacy" size="small" type="info" effect="plain" class="legacy-tag">历史</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="lamp_code" label="路灯编号" width="110" />
         <el-table-column prop="road_name" label="所在道路" min-width="120" show-overflow-tooltip />
         <el-table-column prop="fault_type" label="故障类型" width="110" />
@@ -226,3 +231,9 @@ onMounted(async () => {
   await applyRouteQuery()
 })
 </script>
+
+<style scoped>
+.legacy-tag {
+  margin-left: 6px;
+}
+</style>

@@ -59,6 +59,10 @@ type Repair struct {
 	// DurationMinutes 仅用于响应展示的维修耗时(分钟), 不落库。
 	DurationMinutes *int64 `gorm:"-" json:"duration_minutes,omitempty"`
 
+	// IsLegacy 标记旧系统历史台账导入的记录: 计入维修统计与费用基数, 但不参与逾期计算。
+	IsLegacy bool  `gorm:"not null;default:0;index" json:"is_legacy"`
+	BatchID  *uint `gorm:"index" json:"batch_id,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

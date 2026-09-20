@@ -6,6 +6,7 @@ import (
 	"streetlight/internal/module"
 	"streetlight/internal/modules/fault"
 	"streetlight/internal/modules/lamp"
+	"streetlight/internal/modules/legacyimport"
 	"streetlight/internal/modules/repair"
 	"streetlight/internal/modules/status"
 )
@@ -30,10 +31,13 @@ func buildModules(db *gorm.DB) []module.Module {
 		repairModule.Repository(),
 	)
 
+	legacyModule := legacyimport.New(db, lampModule.Repository(), faultModule.Repository())
+
 	return []module.Module{
 		lampModule,
 		faultModule,
 		repairModule,
 		statusModule,
+		legacyModule,
 	}
 }
