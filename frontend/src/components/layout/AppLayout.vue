@@ -41,6 +41,7 @@ const menus = [
   { path: '/repairs', title: '维修记录录入', icon: 'Tools' },
   { path: '/status', title: '维修状态查询', icon: 'Search' },
   { path: '/status/track', title: '维修进度追踪', icon: 'Guide' },
+  { path: '/imports', title: '台账迁移', icon: 'Upload' },
 ]
 
 const activeMenu = computed(() => {

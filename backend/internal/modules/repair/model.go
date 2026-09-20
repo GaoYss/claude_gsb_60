@@ -55,6 +55,8 @@ type Repair struct {
 	Materials    string     `gorm:"size:255" json:"materials"`
 	Cost         float64    `json:"cost"`
 	Remark       string     `gorm:"size:255" json:"remark"`
+	// ImportBatchID 标记台账迁移导入的记录, 非空时表示来自旧系统批量导入。
+	ImportBatchID *uint `gorm:"index" json:"import_batch_id"`
 
 	// DurationMinutes 仅用于响应展示的维修耗时(分钟), 不落库。
 	DurationMinutes *int64 `gorm:"-" json:"duration_minutes,omitempty"`

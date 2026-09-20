@@ -43,6 +43,12 @@ const routes = [
         component: () => import('@/views/status/StatusTrackView.vue'),
         meta: { title: '维修进度追踪', icon: 'Guide' },
       },
+      {
+        path: 'imports',
+        name: 'imports',
+        component: () => import('@/views/importer/ImportView.vue'),
+        meta: { title: '台账迁移', icon: 'Upload' },
+      },
     ],
   },
   {

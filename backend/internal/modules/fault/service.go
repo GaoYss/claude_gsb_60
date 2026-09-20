@@ -304,6 +304,12 @@ func (s *Service) SyncRepairStats(ctx context.Context, faultID uint, repairCount
 	return s.syncLampStatus(ctx, entity.LampID)
 }
 
+// SyncLampRunStatus 依据该路灯的故障分布重新计算并写回运行状态。
+// 导出给台账迁移模块: 批量导入提交后按路灯重算, 使导入的未闭环故障计入亮灯率基数。
+func (s *Service) SyncLampRunStatus(ctx context.Context, lampID uint) error {
+	return s.syncLampStatus(ctx, lampID)
+}
+
 // syncLampStatus 依据该路灯的故障分布重新计算并写回运行状态。
 func (s *Service) syncLampStatus(ctx context.Context, lampID uint) error {
 	counts, err := s.repo.StatusCountsForLamp(ctx, lampID)

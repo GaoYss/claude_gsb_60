@@ -77,6 +77,18 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (*Lamp, error) 
 	return &entity, nil
 }
 
+// ListByCodes 按编号批量查询路灯, 供台账迁移导入时一次性校验编号与点位。
+func (r *Repository) ListByCodes(ctx context.Context, codes []string) ([]Lamp, error) {
+	entities := make([]Lamp, 0, len(codes))
+	if len(codes) == 0 {
+		return entities, nil
+	}
+	if err := r.session(ctx).Where("code IN ?", codes).Find(&entities).Error; err != nil {
+		return nil, fmt.Errorf("批量查询路灯失败: %w", err)
+	}
+	return entities, nil
+}
+
 // ExistsByCode 判断路灯编号是否已被占用, excludeID 用于更新场景排除自身。
 func (r *Repository) ExistsByCode(ctx context.Context, code string, excludeID uint) (bool, error) {
 	query := r.session(ctx).Model(&Lamp{}).Where("code = ?", strings.TrimSpace(code))
@@ -168,7 +180,7 @@ func (r *Repository) CountByColumn(ctx context.Context, column string) (map[stri
 func (r *Repository) DistinctValues(ctx context.Context, column string) ([]string, error) {
 	values := make([]string, 0)
 	err := r.session(ctx).Model(&Lamp{}).
-		Where(column + " <> ''").
+		Where(column+" <> ''").
 		Distinct().
 		Order(column).
 		Pluck(column, &values).Error

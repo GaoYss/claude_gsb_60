@@ -18,8 +18,9 @@
 | 故障登记 | 故障工单登记与流转 | 自动生成故障单号, 紧急程度分级, 状态机流转, 闭环关闭 |
 | 维修记录录入 | 针对故障单登记维修过程 | 自动生成维修单号, 开工/完工时间, 耗材与费用, 四种维修结果 |
 | 维修状态查询 | 只读的综合看板与追踪视图 | 全局概览, 路灯级维修状态列表, 按故障单号/路灯编号的全链路时间线 |
+| 台账迁移 | 旧系统故障与维修台账的一次性批量导入 | 模板下载, 逐行校验并给出可读原因, 单事务原子写入, 重复文件识别跳过, 按条数与金额合计核对 |
 
-四个模块在后端是四个平级的独立包 (`internal/modules/{lamp,fault,repair,status}`), 在前端是四组独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
+五个模块在后端是五个平级的独立包 (`internal/modules/{lamp,fault,repair,status,importer}`), 在前端是五组独立的视图与子组件, 互不耦合; 新增一个业务模块只需要实现 `module.Module` 接口并注册。
 
 ---
 
@@ -45,7 +46,8 @@
 │   │   │   ├── lamp/                     #   路灯台账
 │   │   │   ├── fault/                    #   故障登记
 │   │   │   ├── repair/                   #   维修记录录入
-│   │   │   └── status/                   #   维修状态查询(只读, 不建表)
+│   │   │   ├── status/                   #   维修状态查询(只读, 不建表)
+│   │   │   └── importer/                 #   台账迁移(批量导入 + 导入批次)
 │   │   ├── response/                     # 统一响应信封 Envelope / PageData / OK / Fail
 │   ├── pkg/pagination/                   # 分页与排序参数(排序字段白名单)
 │   ├── data/                             # sqlite 数据文件(运行期生成, 已 gitignore)
@@ -68,7 +70,8 @@
 │   │       ├── lamp/LampListView.vue + components/LampFormDialog.vue
 │   │       ├── fault/FaultListView.vue + components/{FaultFormDialog,FaultDetailDrawer}.vue
 │   │       ├── repair/RepairListView.vue + components/{RepairFormDialog,FinishRepairDialog}.vue
-│   │       └── status/{StatusLampView,StatusTrackView}.vue
+│   │       ├── status/{StatusLampView,StatusTrackView}.vue
+│   │       └── importer/ImportView.vue
 │   ├── nginx.conf                        # 生产: SPA 回退 + /api 反向代理
 │   ├── Dockerfile
 │   └── vite.config.js
@@ -97,6 +100,8 @@ modules/<name>/
 
 `status` 模块是纯只读视图, 复用其它模块的 Repository, 因此没有 `model.go`/`repository.go`, `Models()` 返回 `nil`(不参与自动迁移)。
 
+`importer` 模块在同一套分层之外增加了三个导入辅助文件: `template.go`(模板列定义与生成)、`parser.go`(CSV 解析, 兼容 UTF-8/GBK)、`validator.go`(逐行业务校验)。
+
 ### 3.2 模块装配与依赖方向
 
 `bootstrap/modules.go` 负责按依赖顺序构造模块, 跨模块只允许依赖「下游端口」, 不反向依赖:
@@ -106,6 +111,8 @@ lamp.New(db)                                   -> 路灯台账(无依赖)
 fault.New(db, lampService)                     -> 故障登记(读取路灯校验)
 repair.New(db, faultService)                   -> 维修记录(驱动故障状态流转)
 status.New(db, lampRepo, faultRepo, repairRepo)-> 维修状态查询(只读聚合)
+importer.New(db, lampRepo, faultRepo, faultService, repairRepo)
+                                               -> 台账迁移(批量导入, 最下游)
 ```
 
 路灯运行状态需要根据故障反向回填, 但 `lamp` 不能依赖 `fault`, 因此用 `lampService.SetOpenFaultCounter(faultModule.Repository())` 注入一个统计端口, 避免构造函数循环依赖。
@@ -292,6 +299,15 @@ go test ./...
 | GET | `/status/lamps` | 路灯级维修状态列表(可只看未闭环) |
 | GET | `/status/track` | 全链路追踪, 参数 `fault_no` 或 `lamp_code` |
 
+### 台账迁移
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/imports/template` | 下载导入模板 CSV(带 BOM, 含示例行) |
+| POST | `/imports/legacy` | 上传台账文件(multipart 字段 `file`)执行批量导入 |
+| GET | `/imports/batches` | 导入批次分页查询(批次号/文件名/条数/金额合计) |
+| GET | `/imports/batches/:id` | 导入批次详情 |
+
 ---
 
 ## 八、业务规则
@@ -304,6 +320,16 @@ go test ./...
 - **删除维修记录** 会重算故障的 `repair_count` / `latest_repair_id`, 次数归零时把故障从 `维修中` 回退到 `待处理`。
 - **删除路灯** 会被未闭环故障拦截; **删除故障** 要求已关闭且没有维修记录。
 - **逾期判定**: 上报超过 24 小时仍未闭环的故障计入概览的逾期清单。
+
+### 台账迁移(批量导入)规则
+
+- **模板**: 固定 13 列(路灯编号/点位/故障类型/故障等级/故障描述/上报人/上报时间/闭环时间/维修人/维修班组/维修费用/维修内容/备注), 表头必须与模板完全一致; 支持 UTF-8(含 BOM) 与 GBK 编码, 单批最多 5000 行。
+- **逐行校验**: 路灯编号必须存在于台账、点位必须与台账登记道路一致; 上报时间不能为空且不能晚于当前时间; 闭环时间不能早于上报时间、不能晚于当前时间; 同一盏灯在系统存量与同一文件内都不允许重复的未闭环故障; 已闭环行必须填写维修人, 未闭环行不允许填写维修信息。所有问题行一次性返回行号与可读原因, 改完可整体重传。
+- **原子性**: 任何一行校验失败整批不写库; 写入在单个数据库事务内完成, 提交前按故障条数、维修条数与费用合计逐笔核对, 不一致即回滚, 同一批不会只写进去一半。
+- **幂等**: 按文件内容 SHA-256 识别同一份文件, 重复导入直接跳过并返回已存在的批次; 内容有变化则视为新批次。
+- **闭环语义**: 填写了闭环时间的行导入为「已关闭」故障 + 一条「已完成/已修复」维修记录(费用计入合计); 未填闭环时间的行导入为「待处理」故障。
+- **统计口径**: 导入记录(`import_batch_id` 非空)计入故障总量、未闭环基数并联动路灯运行状态(亮灯率基数), 但不参与逾期(超期未处理)计算。
+- **核对**: 每批生成 `DR + 日期 + 流水` 批次号, 批次上固化数据行数、故障条数、未闭环条数、维修条数与费用合计, 用于与旧台账按条数和金额核对没有漏项。
 
 ---
 

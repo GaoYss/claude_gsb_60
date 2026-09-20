@@ -17,6 +17,7 @@ request.interceptors.response.use(
       }
       const error = new Error(body.message || '请求失败')
       error.code = body.code
+      error.data = body.data
       if (!response.config?.silent) {
         ElMessage.error(error.message)
       }
@@ -29,6 +30,7 @@ request.interceptors.response.use(
     const normalized = new Error(payload?.message || error.message || '网络异常, 请稍后重试')
     normalized.code = payload?.code || 'NETWORK_ERROR'
     normalized.status = error.response?.status
+    normalized.data = payload?.data
     if (!error.config?.silent) {
       ElMessage.error(normalized.message)
     }

@@ -42,6 +42,11 @@ func (r *Repository) session(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx)
 }
 
+// WithTx 返回绑定到指定事务的仓储, 供台账迁移等需要多表原子写入的场景使用。
+func (r *Repository) WithTx(tx *gorm.DB) *Repository {
+	return &Repository{db: tx}
+}
+
 // Create 新增故障记录。
 func (r *Repository) Create(ctx context.Context, entity *Fault) error {
 	if err := r.session(ctx).Create(entity).Error; err != nil {
@@ -201,6 +206,22 @@ func (r *Repository) CountOpenByLamp(ctx context.Context, lampID uint) (int64, e
 		return 0, fmt.Errorf("统计路灯未闭环故障失败: %w", err)
 	}
 	return count, nil
+}
+
+// ListOpenByLampIDs 批量查询多盏路灯当前未闭环的故障, 供台账迁移校验重复未闭环使用。
+func (r *Repository) ListOpenByLampIDs(ctx context.Context, lampIDs []uint) ([]Fault, error) {
+	entities := make([]Fault, 0)
+	if len(lampIDs) == 0 {
+		return entities, nil
+	}
+	err := r.session(ctx).
+		Where("lamp_id IN ? AND status IN ?", lampIDs, []string{StatusPending, StatusProcessing}).
+		Order("reported_at DESC, id DESC").
+		Find(&entities).Error
+	if err != nil {
+		return nil, fmt.Errorf("批量查询路灯未闭环故障失败: %w", err)
+	}
+	return entities, nil
 }
 
 // StatusCountsForLamp 统计某盏路灯各状态的故障数量, 用于推算运行状态。

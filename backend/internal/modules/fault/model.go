@@ -101,8 +101,11 @@ type Fault struct {
 	LatestRepairID *uint      `json:"latest_repair_id"`
 	ClosedAt       *time.Time `json:"closed_at"`
 	CloseRemark    string     `gorm:"size:255" json:"close_remark"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	// ImportBatchID 标记台账迁移导入的记录, 非空时表示来自旧系统批量导入:
+	// 计入亮灯率基数与各类统计, 但不参与逾期(超期未处理)计算。
+	ImportBatchID *uint     `gorm:"index" json:"import_batch_id"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // TableName 指定表名。

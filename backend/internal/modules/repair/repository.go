@@ -41,6 +41,11 @@ func (r *Repository) session(ctx context.Context) *gorm.DB {
 	return r.db.WithContext(ctx)
 }
 
+// WithTx 返回绑定到指定事务的仓储, 供台账迁移等需要多表原子写入的场景使用。
+func (r *Repository) WithTx(tx *gorm.DB) *Repository {
+	return &Repository{db: tx}
+}
+
 // Create 新增维修记录。
 func (r *Repository) Create(ctx context.Context, entity *Repair) error {
 	if err := r.session(ctx).Create(entity).Error; err != nil {
@@ -282,7 +287,7 @@ func (r *Repository) AverageDurationHours(ctx context.Context) (float64, error) 
 func (r *Repository) DistinctValues(ctx context.Context, column string) ([]string, error) {
 	values := make([]string, 0)
 	err := r.session(ctx).Model(&Repair{}).
-		Where(column + " <> ''").
+		Where(column+" <> ''").
 		Distinct().
 		Order(column).
 		Pluck(column, &values).Error
